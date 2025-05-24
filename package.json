@@ -1,5 +1,5 @@
 {
-  "name": "@everybase/intl",
+  "name": "@everybase/i18n",
   "version": "1.0.0",
   "type": "module",
   "exports": {

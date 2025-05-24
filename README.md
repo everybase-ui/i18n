@@ -1,4 +1,4 @@
-# @everybase/intl
+# @everybase/i18n
 Internationalization in React
 
 ## Setup
