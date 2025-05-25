@@ -1,25 +1,26 @@
-import { createI18n, type I18nResources } from '@/i18n';
-import { render, screen } from '@testing-library/react';
+import { createI18n } from '@/i18n';
+import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
-const I18n = createI18n({
-  en: {
-    title: 'Hi!',
-    desc: 'Lets localize your app with {lib} and {framework}',
-  },
-  vi: {
-    title: 'Xin chào!',
-    desc: 'Bắt đầu địa phương hoá ứng dụng của bạn với {lib} và {framework}',
-  },
-} as const satisfies I18nResources);
-
 it('throws error if used outside Provider', () => {
+  const I18n = createI18n({ en: { title: 'Hello' } });
   expect(() => render(<I18n.T id="title" />)).toThrow(
     'LocaleContext not found',
   );
 });
 
 it('renders translations', async () => {
+  const I18n = createI18n({
+    en: {
+      title: 'Hi!',
+      desc: 'Lets localize your app with {lib} and {framework}',
+    },
+    vi: {
+      title: 'Xin chào!',
+      desc: 'Bắt đầu địa phương hoá ứng dụng của bạn với {lib} và {framework}',
+    },
+  } as const);
+
   function SwitchLocale() {
     const [, setLocale] = I18n.useLocale();
 
@@ -59,4 +60,49 @@ it('renders translations', async () => {
   expect(p).toHaveTextContent(
     'Bắt đầu địa phương hoá ứng dụng của bạn với @everybase/i18n và React',
   );
+});
+
+describe('lazy load translations', () => {
+  const loadEn = vi.fn(
+    () =>
+      new Promise<{ title: 'Hi!' }>((resolve) =>
+        setTimeout(() => resolve({ title: 'Hi!' })),
+      ),
+  );
+
+  const LazyI18n = createI18n({
+    en: loadEn,
+  });
+
+  function Component() {
+    return (
+      <LazyI18n.Provider
+        defaultLocale="en"
+        fallback={<output>Loading...</output>}
+      >
+        <p>
+          <LazyI18n.T id="title" />
+        </p>
+      </LazyI18n.Provider>
+    );
+  }
+
+  beforeEach(() => {
+    vi.resetAllMocks();
+  });
+
+  it('renders fallback while loading translations', () => {
+    render(<Component />);
+    expect(screen.getByRole('status')).toBeInTheDocument();
+  });
+
+  it('renders translations after loaded', async () => {
+    const { rerender } = await act(() => render(<Component />));
+    expect(screen.getByRole('paragraph')).toHaveTextContent('Hi!');
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(loadEn).toHaveBeenCalled();
+
+    rerender(<Component />);
+    expect(loadEn).toHaveBeenCalledTimes(1);
+  });
 });

@@ -1,18 +1,16 @@
-import { createContext, useContext, useState } from 'react';
+import { createContext, Suspense, use, useContext, useState } from 'react';
 
-type ParamKey<T extends string> = T extends `${string}{${infer P1}}${infer T1}`
-  ? P1 | ParamKey<T1>
+type ParamKey<T extends string> = T extends `${string}{${infer P}}${infer R}`
+  ? P | ParamKey<R>
   : never;
 
-export type I18nResources = Record<string, Record<string, string>>;
-
-export function createI18n<Resources extends I18nResources>(
-  resources: Resources,
-) {
-  type Locale = keyof Resources;
-  type TranslationId = keyof Resources[Locale];
+export function createI18n<
+  Locale extends string,
+  Translations extends Record<string, string>,
+>(resources: Record<Locale, Translations | (() => Promise<Translations>)>) {
+  type TranslationId = keyof Translations;
   type TranslationParamKey<Id extends TranslationId> = ParamKey<
-    Resources[Locale][Id]
+    Translations[Id]
   >;
   type TranslationParams<Id extends TranslationId> = Record<
     TranslationParamKey<Id>,
@@ -28,12 +26,52 @@ export function createI18n<Resources extends I18nResources>(
     return locale;
   }
 
+  const cache: Partial<Record<Locale, Translations>> = {};
+
   type ProviderProps = React.PropsWithChildren<{
     defaultLocale: Locale;
+    fallback?: React.ReactNode;
   }>;
-  function Provider({ defaultLocale, children }: ProviderProps) {
+  function Provider({ defaultLocale, fallback, children }: ProviderProps) {
     const locale = useState(defaultLocale);
-    return <LocaleContext value={locale}>{children}</LocaleContext>;
+    return (
+      <LocaleContext value={locale}>
+        <TranslationsLoader fallback={fallback}>{children}</TranslationsLoader>
+      </LocaleContext>
+    );
+  }
+
+  function TranslationsLoader({
+    fallback,
+    children,
+  }: React.PropsWithChildren<{ fallback?: React.ReactNode }>) {
+    const [locale] = useLocale();
+    const translations = resources[locale];
+
+    if (cache[locale]) return children;
+
+    if (typeof translations === 'function') {
+      return (
+        <Suspense fallback={fallback}>
+          <LazyTranslations translations={translations()}>
+            {children}
+          </LazyTranslations>
+        </Suspense>
+      );
+    }
+
+    cache[locale] = translations as Translations;
+
+    return children;
+  }
+
+  function LazyTranslations({
+    translations,
+    children,
+  }: React.PropsWithChildren<{ translations: Promise<Translations> }>) {
+    const [locale] = useLocale();
+    cache[locale] = use(translations);
+    return children;
   }
 
   type TArgs<Id extends TranslationId> = TranslationParamKey<Id> extends never
@@ -44,7 +82,7 @@ export function createI18n<Resources extends I18nResources>(
 
     function t<Id extends TranslationId>(...args: TArgs<Id>) {
       const [id, params] = args;
-      const translation: string = resources[locale][id];
+      const translation: string = (cache[locale] as Translations)[id];
 
       if (!params) return translation;
 
